@@ -13,11 +13,7 @@ struct Point3 {
     z: f32
 }
 
-trait Distance {
-    fn distance(self, b: Self) -> f32;
-}
-
-trait CalculateCentroid<T: Distance> {
+trait CalculateCentroid<T> {
     fn calculate_centroid(cluster: &[T]) -> T;
 }
 
@@ -67,7 +63,7 @@ fn argmin<T: std::cmp::PartialOrd + Copy>(elements: Vec<T>) -> Option<usize> {
 }
 
 // the comments in this function come from the wikipedia article where I "borrowed" the pseudocode. (https://en.wikipedia.org/wiki/K-means_clustering#Variations)
-fn k_means_cluster<T: Distance + PartialEq + Copy + CalculateCentroid<T>>(k: usize, points: Vec<T>, max_iterations: usize) -> Vec<Vec<T>> {
+fn k_means_cluster<T: PartialEq + Copy + CalculateCentroid<T>>(k: usize, points: Vec<T>, dist: fn(a: T, b: T) -> f32, max_iterations: usize) -> Vec<Vec<T>> {
     // Initialization: choose k centroids (Forgy, Random Partition, etc.)
     // centroids = [c1, c2, ..., ck]
     let mut centroids = Vec::new();
@@ -90,7 +86,7 @@ fn k_means_cluster<T: Distance + PartialEq + Copy + CalculateCentroid<T>>(k: usi
         for point in &points {
             let mut distances_to_each_centroid = Vec::new();
             for centroid in &centroids {
-                distances_to_each_centroid.push(point.distance(*centroid));
+                distances_to_each_centroid.push(dist(*point, *centroid));
             }
             
             let cluster_assignment = argmin(distances_to_each_centroid).unwrap();
@@ -111,7 +107,7 @@ fn k_means_cluster<T: Distance + PartialEq + Copy + CalculateCentroid<T>>(k: usi
 
         let mut converged = true;
         for (c1, c2) in new_centroids.iter().zip(&centroids) {
-            if c1.distance(*c2) > 1e-4 {
+            if dist(*c1, *c2) > 1e-4 {
                 converged = false;
                 break;
             }
@@ -125,12 +121,6 @@ fn k_means_cluster<T: Distance + PartialEq + Copy + CalculateCentroid<T>>(k: usi
     }
 
     return clusters;
-}
-
-impl Distance for Point {
-    fn distance(self, b: Point) -> f32 {
-        ((self.x - b.x).powi(2) + (self.y - b.y).powi(2)).sqrt()
-    }
 }
 
 impl CalculateCentroid<Point> for Point {
@@ -147,14 +137,6 @@ impl CalculateCentroid<Point> for Point {
         mean.y /= cluster.len() as f32;
 
         mean
-    }
-}
-
-impl Distance for Point3 {
-    fn distance(self, b: Point3) -> f32 {
-        ((self.x - b.x).powi(2) +
-        (self.y - b.y).powi(2) +
-        (self.z - b.z).powi(2)).sqrt()
     }
 }
 
@@ -208,7 +190,7 @@ fn main() {
         .unwrap()
         .as_micros() as usize);
 
-    let points = 1e5 as u64;
+    let points = 1e6 as u64;
     let k = 3;
     
     if args.len() > 1 && args[1] == "-sphere" {
@@ -219,8 +201,8 @@ fn main() {
         generate_sphere(&mut data, points / 3, 20.0, Point3 { x: 0.0, y: 1.7 * 20.0, z: 1.2 * 20.0 });
 
         let start = std::time::Instant::now();
-        let clusters = k_means_cluster(k, data, 1000);
-        println!("took {} ms", start.elapsed().as_millis());
+        let clusters = k_means_cluster(k, data, |a, b| (a.x - b.x).powi(2) + (a.y - b.y).powi(2) + (a.z - b.z).powi(2), 1000);
+        println!("took {} ms for ~{points} points", start.elapsed().as_millis());
         
         // Setup 3D plot area
         let backend = BitMapBackend::new("clusters_3d.png", (1024, 768));
@@ -281,9 +263,9 @@ fn main() {
         generate_circle(&mut data, points/3, 10.0, Point {x: 60.0, y : 20.0});
 
         let start = std::time::Instant::now();
-        let clusters = k_means_cluster(k, data, 1000);
-        println!("took {} ms", start.elapsed().as_millis());
-
+        let clusters = k_means_cluster(k, data, |a, b| (a.x - b.x).powi(2) + (a.y - b.y).powi(2), 1000);
+        println!("took {} ms for ~{points} points", start.elapsed().as_millis());
+        
         // IDK how tf this works, why is it done this way nor anything, this is pure ChatGPT magic tbh.
         let min_x = clusters.iter().flatten().map(|p| p.x).fold(f32::INFINITY, f32::min);
         let max_x = clusters.iter().flatten().map(|p| p.x).fold(f32::NEG_INFINITY, f32::max);
